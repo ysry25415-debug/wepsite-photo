@@ -58,7 +58,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event) => {
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'p') {
+      if (event.ctrlKey && event.altKey && event.key.toLowerCase() === 'o') {
         event.preventDefault()
         setAdminOpen(true)
       }
