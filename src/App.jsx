@@ -44,7 +44,17 @@ function catalogServers(catalog) {
   const savedServers = Array.isArray(catalog.servers) ? catalog.servers : []
   return DEFAULT_SERVERS.map(server => {
     const saved = savedServers.find(item => item.id === server.id)
-    return { ...server, ...saved, products: Array.isArray(saved?.products) ? saved.products : server.products }
+    // Icons are UI-only React components. Never read them from saved JSON, because a
+    // serialized component becomes an invalid object and can crash the storefront.
+    const normalized = {
+      id: server.id,
+      label: typeof saved?.label === 'string' ? saved.label : server.label,
+      title: typeof saved?.title === 'string' ? saved.title : server.title,
+      products: Array.isArray(saved?.products) ? saved.products : server.products
+    }
+    // Keep the runtime icon non-enumerable, so any catalog save contains data only.
+    Object.defineProperty(normalized, 'icon', { value: server.icon, enumerable: false })
+    return normalized
   })
 }
 
