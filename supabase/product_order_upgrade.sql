@@ -14,3 +14,6 @@ select id, 'admin'
 from auth.users
 where email = 'codexa031@gmail.com'
 on conflict (id) do update set role = 'admin';
+
+-- Force the Supabase REST API to reload the database schema immediately.
+notify pgrst, 'reload schema';
