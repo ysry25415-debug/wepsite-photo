@@ -9,4 +9,4 @@ Mobile-first React + Tailwind storefront for custom framed prints and Forex boar
 3. Copy `.env.example` to `.env` if you want to override the included public Supabase configuration.
 4. Install packages with `pnpm install`, then run `pnpm dev`.
 
-The admin sign-in is intentionally hidden behind `Ctrl + Alt + O`; its password is never stored in browser source code.
+The admin sign-in is intentionally hidden behind `Ctrl + Alt + O` or the `#oasis-admin` hash URL; its password is never stored in browser source code.

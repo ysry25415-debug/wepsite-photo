@@ -58,13 +58,21 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event) => {
-      if (event.ctrlKey && event.altKey && event.key.toLowerCase() === 'o') {
+      if (event.ctrlKey && event.altKey && event.code === 'KeyO') {
         event.preventDefault()
         setAdminOpen(true)
       }
     }
+    const openFromSecretLink = () => {
+      if (window.location.hash.toLowerCase() === '#oasis-admin') setAdminOpen(true)
+    }
+    openFromSecretLink()
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('hashchange', openFromSecretLink)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('hashchange', openFromSecretLink)
+    }
   }, [])
 
   useEffect(() => {
