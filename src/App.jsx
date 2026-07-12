@@ -32,6 +32,38 @@ const DEFAULT_CATALOG = {
   prices: { classic: 690, forex: 490 }
 }
 
+const CATALOG_CACHE_KEY = 'oasis-catalog-v1'
+
+function mergeCatalog(value) {
+  if (!value || typeof value !== 'object') return DEFAULT_CATALOG
+  return {
+    ...DEFAULT_CATALOG,
+    ...value,
+    slides: Array.isArray(value.slides) ? value.slides : DEFAULT_CATALOG.slides,
+    bestSellers: Array.isArray(value.bestSellers) ? value.bestSellers : DEFAULT_CATALOG.bestSellers,
+    categories: Array.isArray(value.categories) ? value.categories : DEFAULT_CATALOG.categories,
+    prices: { ...DEFAULT_CATALOG.prices, ...(value.prices || {}) }
+  }
+}
+
+function cachedCatalog() {
+  try { return mergeCatalog(JSON.parse(window.localStorage.getItem(CATALOG_CACHE_KEY))) }
+  catch { return DEFAULT_CATALOG }
+}
+
+function optimizedImage(src, width) {
+  if (!src?.includes('images.unsplash.com')) return src
+  try {
+    const url = new URL(src)
+    url.searchParams.set('auto', 'format')
+    url.searchParams.set('fm', 'webp')
+    url.searchParams.set('fit', 'crop')
+    url.searchParams.set('w', String(width))
+    url.searchParams.set('q', '76')
+    return url.toString()
+  } catch { return src }
+}
+
 const DEFAULT_SERVERS = [
   { id: 'cars', label: 'Cars', title: 'Car collection', icon: Car, products: [] },
   { id: 'football', label: 'Football', title: 'Football stars', icon: Trophy, products: [] },
@@ -65,7 +97,7 @@ export default function App() {
   const [view, setView] = useState('shop')
   const [adminOpen, setAdminOpen] = useState(false)
   const [session, setSession] = useState(null)
-  const [catalog, setCatalog] = useState(DEFAULT_CATALOG)
+  const [catalog, setCatalog] = useState(cachedCatalog)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -93,9 +125,26 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    supabase.from('store_settings').select('value').eq('key', 'catalog').maybeSingle()
-      .then(({ data }) => { if (data?.value) setCatalog({ ...DEFAULT_CATALOG, ...data.value }) })
+    let cancelled = false
+    const loadCatalog = async (attempt = 0) => {
+      const { data, error } = await supabase.from('store_settings').select('value').eq('key', 'catalog').maybeSingle()
+      if (cancelled) return
+      if (error) {
+        if (attempt === 0) window.setTimeout(() => loadCatalog(1), 1500)
+        return
+      }
+      if (!data?.value) return
+      const nextCatalog = mergeCatalog(data.value)
+      setCatalog(nextCatalog)
+      window.localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(nextCatalog))
+    }
+    loadCatalog().catch(() => {})
+    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(catalog))
+  }, [catalog])
 
   const signOut = async () => {
     await supabase.auth.signOut()
@@ -138,23 +187,21 @@ function Shop({ catalog }) {
 }
 
 function OfferSlideshow({ slides }) {
+  const safeSlides = Array.isArray(slides) ? slides.filter(item => item && typeof item === 'object') : []
   const [active, setActive] = useState(0)
   const [pausedByCustomer, setPausedByCustomer] = useState(false)
   const touchStart = useRef(null)
-  const safeActive = slides.length ? active % slides.length : 0
-  const chooseSlide = (next) => { setActive((next + slides.length) % slides.length); setPausedByCustomer(true) }
+  const safeActive = safeSlides.length ? active % safeSlides.length : 0
+  const chooseSlide = (next) => { setActive((next + safeSlides.length) % safeSlides.length); setPausedByCustomer(true) }
   useEffect(() => {
-    if (slides.length < 2) return
-    const timer = window.setTimeout(() => {
-      setActive(current => (current + 1) % slides.length)
-      setPausedByCustomer(false)
-    }, 4000)
+    if (safeSlides.length < 2) return
+    const timer = window.setTimeout(() => { setActive(current => (current + 1) % safeSlides.length); setPausedByCustomer(false) }, 5000)
     return () => window.clearTimeout(timer)
-  }, [safeActive, slides.length, pausedByCustomer])
-  if (!slides.length) return <div className="flex aspect-[4/5] items-end rounded-2xl bg-ink p-7 text-white shadow-gallery sm:aspect-[16/8] sm:p-10"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">OASIS</p><h1 className="mt-2 text-3xl font-semibold sm:text-5xl">New offers coming soon.</h1><p className="mt-2 text-sm text-gray-300">Add a home offer from the admin dashboard.</p></div></div>
-  const slide = slides[safeActive]
+  }, [safeActive, safeSlides.length, pausedByCustomer])
+  if (!safeSlides.length) return <div className="flex aspect-[4/5] items-end rounded-2xl bg-ink p-7 text-white shadow-gallery sm:aspect-[16/8] sm:p-10"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">OASIS</p><h1 className="mt-2 text-3xl font-semibold sm:text-5xl">New offers coming soon.</h1><p className="mt-2 text-sm text-gray-300">Add a home offer from the admin dashboard.</p></div></div>
+  const slide = safeSlides[safeActive]
   const onTouchEnd = (event) => { const distance = event.changedTouches[0].clientX - touchStart.current; if (Math.abs(distance) < 35) { setPausedByCustomer(true); return } chooseSlide(safeActive + (distance < 0 ? 1 : -1)) }
-  return <div onTouchStart={event => { touchStart.current = event.touches[0].clientX }} onTouchEnd={onTouchEnd} className="relative aspect-[4/5] touch-pan-y select-none overflow-hidden rounded-2xl bg-gray-100 shadow-gallery sm:aspect-[16/8]">{slides.map((item, index) => <img draggable="false" key={`${item.image}-${index}`} src={item.image} alt={item.title} className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${index === safeActive ? 'opacity-100' : 'opacity-0'}`} />)}<div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" /><div className="absolute inset-x-0 bottom-0 p-6 text-white sm:p-10"><p className="text-xs font-bold uppercase tracking-[.2em] text-white/75">OASIS offers</p><h1 className="mt-2 max-w-xl text-3xl font-semibold tracking-tight sm:text-5xl">{slide.title}</h1><p className="mt-2 max-w-md text-sm text-white/90 sm:text-base">{slide.subtitle}</p><a href="#best-sellers" className="touch mt-5 inline-flex items-center gap-2 bg-white text-ink">Shop now <ArrowRight size={17} /></a></div><div className="absolute right-5 top-5 flex gap-1.5">{slides.map((_, index) => <button key={index} aria-label={`Show offer ${index + 1}`} onClick={() => chooseSlide(index)} className={`h-2 rounded-full transition-all ${index === safeActive ? 'w-6 bg-white' : 'w-2 bg-white/55'}`} />)}</div></div>
+  return <div onTouchStart={event => { touchStart.current = event.touches[0].clientX }} onTouchEnd={onTouchEnd} className="relative aspect-[4/5] touch-pan-y select-none overflow-hidden rounded-2xl bg-gray-100 shadow-gallery sm:aspect-[16/8]"><img draggable="false" fetchPriority="high" decoding="async" src={optimizedImage(slide.image, 1200)} alt={slide.title || 'OASIS offer'} className="absolute inset-0 h-full w-full object-cover" /><div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" /><div className="absolute inset-x-0 bottom-0 p-6 text-white sm:p-10"><p className="text-xs font-bold uppercase tracking-[.2em] text-white/75">OASIS offers</p><h1 className="mt-2 max-w-xl text-3xl font-semibold tracking-tight sm:text-5xl">{slide.title}</h1><p className="mt-2 max-w-md text-sm text-white/90 sm:text-base">{slide.subtitle}</p><a href="#collection" className="touch mt-5 inline-flex items-center gap-2 bg-white text-ink">Shop now <ArrowRight size={17} /></a></div><div className="absolute right-5 top-5 flex gap-1.5">{safeSlides.map((_, index) => <button key={index} aria-label={`Show offer ${index + 1}`} onClick={() => chooseSlide(index)} className={`h-2 rounded-full transition-all ${index === safeActive ? 'w-6 bg-white' : 'w-2 bg-white/55'}`} />)}</div></div>
 }
 
 function productGallery(product) { return product.images?.filter(Boolean)?.length ? product.images.filter(Boolean) : [product.image].filter(Boolean) }
@@ -251,6 +298,8 @@ function AdminLogin({ onClose, onSuccess }) { const [email, setEmail] = useState
 
 function AdminDashboard({ catalog, setCatalog, onExit, onSignOut }) { const [tab, setTab] = useState('orders'); const [orders, setOrders] = useState([]); const [loading, setLoading] = useState(true); const [saveStatus, setSaveStatus] = useState(''); const servers = catalogServers(catalog); const loadOrders = async () => { setLoading(true); const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false }); if (!error) setOrders(data || []); setLoading(false) }; useEffect(() => { loadOrders() }, []); async function saveCatalog(e) { e.preventDefault(); setSaveStatus('Saving…'); const { error } = await supabase.from('store_settings').upsert({ key: 'catalog', value: catalog }, { onConflict: 'key' }); setSaveStatus(error ? error.message : 'Saved to your storefront.') } async function updateStatus(id, order_status) { const { error } = await supabase.from('orders').update({ order_status }).eq('id', id); if (!error) setOrders(orders.map(o => o.id === id ? { ...o, order_status } : o)) } const selectedServer = servers.find(server => tab === `server-${server.id}`); return <div className="min-h-screen bg-mist"><header className="border-b border-gray-200 bg-white"><div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5"><div><p className="font-serif text-lg font-bold tracking-[.18em]">OASIS</p><p className="text-[10px] font-bold uppercase tracking-wider text-sand">Studio dashboard</p></div><div className="flex gap-1"><button onClick={onExit} className="touch min-h-10 px-3 text-sm">View shop</button><button onClick={onSignOut} aria-label="Sign out" className="touch min-h-10 px-3"><LogOut size={17} /></button></div></div></header><div className="mx-auto max-w-7xl px-5 py-7"><div className="mb-6 flex gap-2 overflow-x-auto pb-1"><button onClick={() => setTab('orders')} className={`touch flex min-h-10 items-center gap-2 px-4 text-sm ${tab === 'orders' ? 'bg-ink text-white' : 'bg-white'}`}><Package size={16} /> Orders</button><button onClick={() => setTab('content')} className={`touch flex min-h-10 items-center gap-2 px-4 text-sm ${tab === 'content' ? 'bg-ink text-white' : 'bg-white'}`}><LayoutDashboard size={16} /> Content & pricing</button>{servers.map(server => { const Icon = server.icon; return <button key={server.id} onClick={() => setTab(`server-${server.id}`)} className={`touch flex min-h-10 items-center gap-2 px-4 text-sm ${tab === `server-${server.id}` ? 'bg-ink text-white' : 'bg-white'}`}><Icon size={16} /> {server.label}</button> })}</div>{tab === 'orders' ? <Orders orders={orders} loading={loading} loadOrders={loadOrders} updateStatus={updateStatus} /> : <CatalogManager catalog={catalog} setCatalog={setCatalog} saveCatalog={saveCatalog} saveStatus={saveStatus} server={selectedServer} />}</div></div> }
 function Orders({ orders, loading, loadOrders, updateStatus }) { return <section><div className="mb-5 flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">Order management</p><h1 className="mt-1 text-3xl font-semibold">Customer requests</h1></div><button onClick={loadOrders} className="touch min-h-10 bg-white px-4 text-sm">Refresh</button></div>{loading ? <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="animate-spin" size={17} /> Loading orders…</div> : orders.length === 0 ? <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-12 text-center text-sm text-gray-500">No orders yet. New customer requests will appear here.</div> : <div className="space-y-3">{orders.map(order => <article key={order.id} className="rounded-2xl bg-white p-4 shadow-sm sm:grid sm:grid-cols-[120px_1fr_auto] sm:gap-5"><img src={order.selected_product_image_url || order.uploaded_image_url || 'https://placehold.co/160x160?text=Art'} alt="Order artwork" className="mb-4 h-24 w-24 rounded-lg object-cover sm:mb-0" /><div><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{order.product_name || order.selected_frame_type}</h2><span className="rounded-full bg-mist px-2 py-1 text-[10px] font-bold uppercase text-gray-500">{order.selected_product_size || order.selected_size}</span></div><p className="mt-2 text-sm font-medium text-ink">Customer: {order.customer_name}</p><p className="mt-1 text-sm text-gray-600">{order.phone} · {order.governorate}</p><p className="mt-1 text-sm text-gray-500">{order.address}</p><p className="mt-2 text-sm font-medium">{order.payment_method} · {currency(order.total || 0)}</p></div><select value={order.order_status || 'New'} onChange={e => updateStatus(order.id, e.target.value)} className="field mt-4 min-h-10 py-0 text-sm sm:mt-0 sm:w-32"><option>New</option><option>Confirmed</option><option>In production</option><option>Delivered</option><option>Cancelled</option></select></article>)}</div>}</section> }
+function ProductManagerCard({ item, index, uploading, onRemove, onUpload, onUpdate, onAddPhoto, onRemovePhoto, onUpdateSize, onAddSize, onRemoveSize, server, onMove }) { return <div className="rounded-xl border border-gray-100 p-3"><div className="relative"><img src={productGallery(item)[0]} alt="" className="h-36 w-full rounded-lg object-cover" /><button type="button" onClick={onRemove} className="absolute right-2 top-2 touch min-h-10 border border-red-200 bg-white/95 px-3 text-red-600" aria-label="Delete product"><Trash2 size={17} /></button></div><ImagePicker label="Upload main photo" loading={uploading === `product-image-${index}`} onFile={file => onUpload(file, true)} className="mt-2 w-full bg-ink px-3 text-xs text-white" />{server && <label className="mt-3 block text-xs font-semibold text-gray-600">Move to server<select defaultValue="" onChange={e => onMove(e.target.value)} className="field mt-1 min-h-10 py-0 text-sm"><option value="" disabled>Select a server</option>{catalogServers({}).filter(target => target.id !== server.id).map(target => <option key={target.id} value={target.id}>{target.label}</option>)}</select></label>}<div className="mt-3 grid gap-2"><input value={item.name} onChange={e => onUpdate({ name: e.target.value })} className="field" placeholder="Product name" /><textarea value={item.detail} onChange={e => onUpdate({ detail: e.target.value })} className="field min-h-20 py-3" placeholder="Full product description" /><div className="grid grid-cols-2 gap-2"><input type="number" value={item.price} onChange={e => onUpdate({ price: Number(e.target.value) })} className="field" placeholder="Starting price" /><input type="number" value={item.oldPrice || ''} onChange={e => onUpdate({ oldPrice: e.target.value ? Number(e.target.value) : null })} className="field" placeholder="Old price" /></div><div className="mt-2 border-t border-gray-100 pt-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">Other product photos</p><ImagePicker label="Add photo" loading={uploading === `product-image-${index}`} onFile={onAddPhoto} className="bg-mist px-3 text-xs" /></div><div className="mt-2 flex gap-2 overflow-x-auto pb-1">{productGallery(item).map((image, imageIndex) => <div key={`${image}-${imageIndex}`} className="relative h-16 w-14 shrink-0"><img src={image} alt="" className="h-full w-full rounded-lg object-cover" />{productGallery(item).length > 1 && <button type="button" onClick={() => onRemovePhoto(imageIndex)} className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-ink text-white" aria-label="Remove photo"><X size={12} /></button>}</div>)}</div></div><div className="mt-2 border-t border-gray-100 pt-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">Size buttons shown to customer</p><button type="button" onClick={onAddSize} className="touch min-h-10 bg-mist px-3 text-xs"><Plus size={14} className="inline" /> Add size</button></div><div className="mt-2 space-y-2">{productSizes(item).map((size, sizeIndex) => <div key={sizeIndex} className="flex gap-2"><input value={size.label} onChange={e => onUpdateSize(sizeIndex, 'label', e.target.value)} className="field" placeholder="e.g. 50 × 70 cm" /><input type="number" value={size.price ?? item.price} onChange={e => onUpdateSize(sizeIndex, 'price', e.target.value)} className="field w-28" placeholder="Price" />{productSizes(item).length > 1 && <button type="button" onClick={() => onRemoveSize(sizeIndex)} className="touch min-h-12 shrink-0 border border-red-200 px-3 text-red-600" aria-label="Delete size"><Trash2 size={16} /></button>}</div>)}</div></div></div></div> }
+
 function CatalogManager({ catalog, setCatalog, saveCatalog, saveStatus, server }) {
   const [uploading, setUploading] = useState('')
   const slides = catalog.slides || DEFAULT_CATALOG.slides
@@ -317,6 +366,18 @@ function CatalogManager({ catalog, setCatalog, saveCatalog, saveStatus, server }
     if (position >= 0) await supabase.storage.from('store-assets').remove([decodeURIComponent(image.slice(position + marker.length))])
     setProducts(products.filter((_, itemIndex) => itemIndex !== index))
   }
+  const moveProduct = (index, targetServerId) => {
+    if (!server || targetServerId === server.id) return
+    const servers = catalogServers(catalog)
+    const target = servers.find(item => item.id === targetServerId)
+    if (!target || target.products.length >= 12) return window.alert('That server already has the maximum of 12 products.')
+    const product = products[index]
+    setCatalog({ ...catalog, servers: servers.map(item => {
+      if (item.id === server.id) return { ...item, products: item.products.filter((_, productIndex) => productIndex !== index) }
+      if (item.id === targetServerId) return { ...item, products: [...item.products, product] }
+      return item
+    }) })
+  }
   const uploadProductImage = async (file, index, asMain = false) => {
     if (!file?.type?.startsWith('image/')) return
     setUploading(`product-image-${index}`)
@@ -334,9 +395,41 @@ function CatalogManager({ catalog, setCatalog, saveCatalog, saveStatus, server }
   const updateProductSize = (index, sizeIndex, key, value) => updateProduct(index, item => { const sizes = productSizes(item); sizes[sizeIndex] = { ...sizes[sizeIndex], [key]: key === 'price' ? Number(value) : value }; return { ...item, price: sizes[0]?.price ?? item.price, sizes } })
   const addProductSize = (index) => updateProduct(index, item => ({ ...item, sizes: [...productSizes(item), { label: 'New size', price: item.price }] }))
   const removeProductSize = (index, sizeIndex) => updateProduct(index, item => { const sizes = productSizes(item).filter((_, current) => current !== sizeIndex); return { ...item, sizes, price: sizes[0]?.price ?? item.price } })
+  if (server) return <ServerCatalogManager catalog={catalog} setCatalog={setCatalog} saveCatalog={saveCatalog} saveStatus={saveStatus} server={server} />
   return <form onSubmit={saveCatalog} className="max-w-4xl"><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">Storefront controls</p><h1 className="mt-1 text-3xl font-semibold">Your offers, products & prices</h1><p className="mt-2 text-sm text-gray-600">Upload the four home offers and manage every visible product price here. Press Save when you finish.</p>
     <div className="mt-6 space-y-5 rounded-2xl bg-white p-5 shadow-sm"><label className="block text-sm font-semibold">Top promotion strip<input value={catalog.promotion} onChange={e => set('promotion', e.target.value)} className="field mt-2" /></label><div className="grid grid-cols-2 gap-3"><label className="text-sm font-semibold">Custom wood frame price<input type="number" value={catalog.prices.classic} onChange={e => setPrice('classic', e.target.value)} className="field mt-2" /></label><label className="text-sm font-semibold">Custom Forex price<input type="number" value={catalog.prices.forex} onChange={e => setPrice('forex', e.target.value)} className="field mt-2" /></label></div></div>
     <div className="mt-5 rounded-2xl bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold">Home offer slideshow</h2><p className="mt-1 text-xs text-gray-500">Add as many offers as you need. Customers can swipe them, and the show changes every 4 seconds.</p></div><button type="button" onClick={() => addItem('slides')} className="touch min-h-10 shrink-0 bg-mist px-3 text-sm"><Plus size={16} className="inline" /> Add offer</button></div><div className="mt-5 space-y-5">{slides.map((slide, i) => <div key={i} className="grid gap-3 rounded-xl border border-gray-100 p-3 sm:grid-cols-[120px_1fr]"><img src={slide.image} alt="" className="h-28 w-full rounded-lg object-cover sm:w-[7.5rem]" /><div className="grid gap-2"><div className="flex gap-2"><input value={slide.title} onChange={e => setItem('slides', i, 'title', e.target.value)} className="field" placeholder="Offer title" /><button type="button" onClick={() => removeItem('slides', i, slide.image)} className="touch min-h-12 shrink-0 border border-red-200 px-3 text-red-600" aria-label="Delete offer"><Trash2 size={17} /></button></div><input value={slide.subtitle} onChange={e => setItem('slides', i, 'subtitle', e.target.value)} className="field" placeholder="Short offer description" /><div className="flex gap-2"><input value={slide.image} onChange={e => setItem('slides', i, 'image', e.target.value)} className="field min-w-0" placeholder="Image URL" /><label className="touch shrink-0 cursor-pointer bg-mist py-3 text-sm">{uploading === `slides-${i}` ? 'Uploading…' : 'Upload'}<input type="file" accept="image/*" className="hidden" onChange={e => upload(e.target.files?.[0], 'slides', i)} /></label></div></div></div>)}{slides.length === 0 && <p className="rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">No live offers. Tap “Add offer” to create one.</p>}</div></div>
     <div className="mt-5 rounded-2xl bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold">Products & ordering options</h2><p className="mt-1 text-xs text-gray-500">Add product photos and size buttons. Customers choose both before ordering.</p></div><button type="button" disabled={bestSellers.length >= 12} onClick={() => addItem('bestSellers')} className="touch min-h-10 shrink-0 bg-mist px-3 text-sm disabled:opacity-40"><Plus size={16} className="inline" /> Add product</button></div><div className="mt-5 grid gap-5 sm:grid-cols-2">{bestSellers.map((item, i) => <div key={i} className="rounded-xl border border-gray-100 p-3"><div className="relative"><img src={productGallery(item)[0]} alt="" className="h-36 w-full rounded-lg object-cover" /><button type="button" onClick={() => removeItem('bestSellers', i, item.image)} className="absolute right-2 top-2 touch min-h-10 border border-red-200 bg-white/95 px-3 text-red-600" aria-label="Delete product"><Trash2 size={17} /></button></div><ImagePicker label="Upload main photo" loading={uploading === `product-image-${i}`} onFile={file => uploadProductImage(file, i, true)} className="mt-2 w-full bg-ink px-3 text-xs text-white" /><div className="mt-3 grid gap-2"><input value={item.name} onChange={e => setItem('bestSellers', i, 'name', e.target.value)} className="field" placeholder="Product name" /><textarea value={item.detail} onChange={e => setItem('bestSellers', i, 'detail', e.target.value)} className="field min-h-20 py-3" placeholder="Full product description" /><div className="grid grid-cols-2 gap-2"><input type="number" value={item.price} onChange={e => setItem('bestSellers', i, 'price', Number(e.target.value))} className="field" placeholder="Starting price" /><input type="number" value={item.oldPrice || ''} onChange={e => setItem('bestSellers', i, 'oldPrice', e.target.value ? Number(e.target.value) : null)} className="field" placeholder="Old price" /></div><div className="mt-2 border-t border-gray-100 pt-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">Other product photos</p><ImagePicker label="Add photo" loading={uploading === `product-image-${i}`} onFile={file => uploadProductImage(file, i)} className="bg-mist px-3 text-xs" /></div><div className="mt-2 flex gap-2 overflow-x-auto pb-1">{productGallery(item).map((image, imageIndex) => <div key={`${image}-${imageIndex}`} className="relative h-16 w-14 shrink-0"><img src={image} alt="" className="h-full w-full rounded-lg object-cover" />{productGallery(item).length > 1 && <button type="button" onClick={() => removeProductImage(i, imageIndex)} className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-ink text-white" aria-label="Remove photo"><X size={12} /></button>}</div>)}</div></div><div className="mt-2 border-t border-gray-100 pt-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">Size buttons shown to customer</p><button type="button" onClick={() => addProductSize(i)} className="touch min-h-10 bg-mist px-3 text-xs"><Plus size={14} className="inline" /> Add size</button></div><div className="mt-2 space-y-2">{productSizes(item).map((size, sizeIndex) => <div key={sizeIndex} className="flex gap-2"><input value={size.label} onChange={e => updateProductSize(i, sizeIndex, 'label', e.target.value)} className="field" placeholder="e.g. 50 × 70 cm" /><input type="number" value={size.price ?? item.price} onChange={e => updateProductSize(i, sizeIndex, 'price', e.target.value)} className="field w-28" placeholder="Price" />{productSizes(item).length > 1 && <button type="button" onClick={() => removeProductSize(i, sizeIndex)} className="touch min-h-12 shrink-0 border border-red-200 px-3 text-red-600" aria-label="Delete size"><Trash2 size={16} /></button>}</div>)}</div></div></div></div>)}</div></div>
     <button className="touch mt-5 bg-ink text-white">Save all storefront changes</button>{saveStatus && <p className="mt-3 text-sm text-gray-600">{saveStatus}</p>}</form>
+}
+
+function ServerCatalogManager({ catalog, setCatalog, saveCatalog, saveStatus, server }) {
+  const [uploading, setUploading] = useState('')
+  const servers = catalogServers(catalog)
+  const current = servers.find(item => item.id === server.id) || server
+  const products = current.products || []
+  const setProducts = nextProducts => setCatalog({ ...catalog, servers: servers.map(item => item.id === current.id ? { ...item, products: nextProducts } : item) })
+  const updateProduct = (index, update) => setProducts(products.map((item, itemIndex) => itemIndex === index ? (typeof update === 'function' ? update(item) : { ...item, ...update }) : item))
+  const addProduct = () => products.length < 12 && setProducts([...products, { name: 'New product', detail: 'Add product details', price: 0, oldPrice: null, image: 'https://placehold.co/800x1000?text=Upload+product+image', images: ['https://placehold.co/800x1000?text=Upload+product+image'], sizes: [{ label: 'A4 · 21 × 29.7 cm', price: 0 }] }])
+  const deleteProduct = index => { if (window.confirm('Delete this product?')) setProducts(products.filter((_, itemIndex) => itemIndex !== index)) }
+  const moveProduct = (index, targetId) => {
+    const target = servers.find(item => item.id === targetId)
+    if (!target || target.products.length >= 12) return window.alert('That server already has the maximum of 12 products.')
+    const product = products[index]
+    setCatalog({ ...catalog, servers: servers.map(item => item.id === current.id ? { ...item, products: item.products.filter((_, itemIndex) => itemIndex !== index) } : item.id === targetId ? { ...item, products: [...item.products, product] } : item) })
+  }
+  const uploadMainPhoto = async (file, index) => {
+    if (!file?.type?.startsWith('image/')) return
+    setUploading(`server-product-${index}`)
+    try {
+      const extension = file.name.split('.').pop() || 'jpg'
+      const path = `servers/${current.id}/${crypto.randomUUID()}.${extension}`
+      const { error } = await supabase.storage.from('store-assets').upload(path, file, { contentType: file.type })
+      if (error) throw error
+      const { data } = supabase.storage.from('store-assets').getPublicUrl(path)
+      updateProduct(index, item => { const images = [data.publicUrl, ...productGallery(item).filter(image => image !== data.publicUrl && !image.includes('placehold.co'))]; return { ...item, image: images[0], images } })
+    } catch (error) { window.alert(error.message || 'Image upload failed.') }
+    finally { setUploading('') }
+  }
+  return <form onSubmit={saveCatalog} className="max-w-4xl"><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">Collection server</p><h1 className="mt-1 text-3xl font-semibold">{current.label}</h1><p className="mt-2 text-sm text-gray-600">Manage the products shown to customers in this tab. To transfer one, choose another server below then save.</p><div className="mt-5 rounded-2xl bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold">Products</h2><p className="mt-1 text-xs text-gray-500">Each server can hold up to 12 products.</p></div><button type="button" disabled={products.length >= 12} onClick={addProduct} className="touch min-h-10 shrink-0 bg-mist px-3 text-sm disabled:opacity-40"><Plus size={16} className="inline" /> Add product</button></div><div className="mt-5 grid gap-5 sm:grid-cols-2">{products.map((item, index) => <article key={`${item.name}-${index}`} className="rounded-xl border border-gray-100 p-3"><div className="relative"><img src={productGallery(item)[0]} alt="" className="h-36 w-full rounded-lg object-cover" /><button type="button" onClick={() => deleteProduct(index)} className="absolute right-2 top-2 touch min-h-10 border border-red-200 bg-white/95 px-3 text-red-600" aria-label="Delete product"><Trash2 size={17} /></button></div><ImagePicker label="Upload main photo" loading={uploading === `server-product-${index}`} onFile={file => uploadMainPhoto(file, index)} className="mt-2 w-full bg-ink px-3 text-xs text-white" /><label className="mt-3 block text-xs font-semibold text-gray-600">Move to server<select defaultValue="" onChange={event => moveProduct(index, event.target.value)} className="field mt-1 min-h-10 py-0 text-sm"><option value="" disabled>Select a server</option>{servers.filter(target => target.id !== current.id).map(target => <option key={target.id} value={target.id}>{target.label}</option>)}</select></label><div className="mt-3 grid gap-2"><input value={item.name} onChange={event => updateProduct(index, { name: event.target.value })} className="field" placeholder="Product name" /><textarea value={item.detail} onChange={event => updateProduct(index, { detail: event.target.value })} className="field min-h-20 py-3" placeholder="Full product description" /><div className="grid grid-cols-2 gap-2"><input type="number" value={item.price} onChange={event => updateProduct(index, { price: Number(event.target.value) })} className="field" placeholder="Starting price" /><input type="number" value={item.oldPrice || ''} onChange={event => updateProduct(index, { oldPrice: event.target.value ? Number(event.target.value) : null })} className="field" placeholder="Old price" /></div><div className="border-t border-gray-100 pt-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">Sizes</p><button type="button" onClick={() => updateProduct(index, product => ({ ...product, sizes: [...productSizes(product), { label: 'New size', price: product.price }] }))} className="touch min-h-10 bg-mist px-3 text-xs"><Plus size={14} className="inline" /> Add size</button></div><div className="mt-2 space-y-2">{productSizes(item).map((size, sizeIndex) => <div key={sizeIndex} className="flex gap-2"><input value={size.label} onChange={event => updateProduct(index, product => { const sizes = productSizes(product); sizes[sizeIndex] = { ...sizes[sizeIndex], label: event.target.value }; return { ...product, sizes } })} className="field" placeholder="Size" /><input type="number" value={size.price ?? item.price} onChange={event => updateProduct(index, product => { const sizes = productSizes(product); sizes[sizeIndex] = { ...sizes[sizeIndex], price: Number(event.target.value) }; return { ...product, price: sizes[0]?.price ?? product.price, sizes } })} className="field w-28" placeholder="Price" />{productSizes(item).length > 1 && <button type="button" onClick={() => updateProduct(index, product => { const sizes = productSizes(product).filter((_, currentIndex) => currentIndex !== sizeIndex); return { ...product, price: sizes[0]?.price ?? product.price, sizes } })} className="touch min-h-12 shrink-0 border border-red-200 px-3 text-red-600"><Trash2 size={16} /></button>}</div>)}</div></div></div></article>)}</div>{products.length === 0 && <p className="mt-5 rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">No products in this server yet.</p>}</div><button className="touch mt-5 bg-ink text-white">Save server changes</button>{saveStatus && <p className="mt-3 text-sm text-gray-600">{saveStatus}</p>}</form>
 }
