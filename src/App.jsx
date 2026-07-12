@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft, ArrowRight, Check, ChevronRight, Download, Image as ImageIcon,
-  LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu, Package, Plus,
+  Car, Gamepad2, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu, MicVocal,
+  Package, Palette, Plus, Trophy,
   ShieldCheck, Trash2, Upload, X
 } from 'lucide-react'
 import { supabase } from './lib/supabase'
@@ -29,6 +30,22 @@ const DEFAULT_CATALOG = {
     { name: 'Movies', image: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=900&q=80' }
   ],
   prices: { classic: 690, forex: 490 }
+}
+
+const DEFAULT_SERVERS = [
+  { id: 'cars', label: 'Cars', title: 'Car collection', icon: Car, products: [] },
+  { id: 'football', label: 'Football', title: 'Football stars', icon: Trophy, products: [] },
+  { id: 'singers', label: 'Singers', title: 'Music icons', icon: MicVocal, products: [] },
+  { id: 'games', label: 'Games', title: 'Gaming collection', icon: Gamepad2, products: [] },
+  { id: 'art', label: 'Art', title: 'Art collection', icon: Palette, products: [] }
+]
+
+function catalogServers(catalog) {
+  const savedServers = Array.isArray(catalog.servers) ? catalog.servers : []
+  return DEFAULT_SERVERS.map(server => {
+    const saved = savedServers.find(item => item.id === server.id)
+    return { ...server, ...saved, products: Array.isArray(saved?.products) ? saved.products : server.products }
+  })
 }
 
 const sizes = [
@@ -95,15 +112,20 @@ export default function App() {
 function Shop({ catalog }) {
   const [customizerOpen, setCustomizerOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
+  const [activeCollection, setActiveCollection] = useState('all')
+  const servers = catalogServers(catalog)
+  const selectedServer = servers.find(server => server.id === activeCollection)
+  const products = selectedServer ? selectedServer.products : (catalog.bestSellers || [])
+  const collectionTitle = selectedServer ? selectedServer.title : 'Best sellers'
   if (selectedProduct) return <ProductPage product={selectedProduct} onBack={() => setSelectedProduct(null)} />
   return <main>
     <div className="border-b border-gray-100 bg-mist px-4 py-2.5 text-center text-[11px] font-semibold tracking-wide text-gray-600 sm:text-xs">{catalog.promotion}</div>
     <header className="mx-auto flex h-[4.5rem] max-w-6xl items-center justify-between px-5">
       <a href="#top" className="font-serif text-xl font-bold tracking-[.18em]">OASIS</a>
-      <a href="#best-sellers" className="touch bg-ink px-4 py-2 text-sm text-white">Shop offers</a>
+      <a href="#collection" className="touch bg-ink px-4 py-2 text-sm text-white">Shop offers</a>
     </header>
     <section id="top" className="mx-auto max-w-6xl px-5 pb-12 pt-4 md:pt-7"><OfferSlideshow slides={catalog.slides || DEFAULT_CATALOG.slides} /></section>
-    <section id="best-sellers" className="mx-auto max-w-6xl px-5 pb-14"><div className="mb-7 flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">Customer favourites</p><h2 className="mt-2 text-2xl font-semibold">Best sellers</h2><p className="mt-2 text-sm text-gray-600">Tap a product to see photos, sizes and full details.</p></div><span className="hidden text-sm text-gray-500 sm:block">Prices set by OASIS</span></div><div className="grid grid-cols-2 gap-3 md:grid-cols-4">{(catalog.bestSellers || []).map((item, index) => <button key={`${item.name}-${index}`} onClick={() => setSelectedProduct(item)} className="overflow-hidden rounded-xl border border-gray-100 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-gallery"><div className="relative"><img src={item.images?.[0] || item.image} alt={item.name} className="aspect-[.85] w-full object-cover" />{item.oldPrice && <span className="absolute left-2 top-2 rounded-full bg-white px-2 py-1 text-[10px] font-bold text-ink">Offer</span>}</div><div className="p-3"><h3 className="text-sm font-semibold">{item.name}</h3><p className="mt-1 truncate text-xs text-gray-500">{item.detail}</p><div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-sm font-bold">from {currency(item.price)}</span>{item.oldPrice && <span className="text-xs text-gray-400 line-through">{currency(item.oldPrice)}</span>}</div></div></button>)}</div></section>
+    <section id="collection" className="mx-auto max-w-6xl px-5 pb-14"><div className="mb-6 overflow-x-auto pb-1"><div className="flex w-max gap-2"><button onClick={() => setActiveCollection('all')} className={`touch min-h-10 px-4 text-sm ${activeCollection === 'all' ? 'bg-ink text-white' : 'border border-gray-200 bg-white'}`}>All</button>{servers.map(server => { const Icon = server.icon; return <button key={server.id} onClick={() => setActiveCollection(server.id)} className={`touch flex min-h-10 items-center gap-2 px-4 text-sm ${activeCollection === server.id ? 'bg-ink text-white' : 'border border-gray-200 bg-white'}`}><Icon size={16} /> {server.label}</button> })}</div></div><div className="mb-7 flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">{selectedServer ? 'Browse this collection' : 'Customer favourites'}</p><h2 className="mt-2 text-2xl font-semibold">{collectionTitle}</h2><p className="mt-2 text-sm text-gray-600">Tap a product to see photos, sizes and full details.</p></div><span className="hidden text-sm text-gray-500 sm:block">Prices set by OASIS</span></div>{products.length ? <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{products.map((item, index) => <button key={`${item.name}-${index}`} onClick={() => setSelectedProduct(item)} className="overflow-hidden rounded-xl border border-gray-100 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-gallery"><div className="relative"><img src={item.images?.[0] || item.image} alt={item.name} className="aspect-[.85] w-full object-cover" />{item.oldPrice && <span className="absolute left-2 top-2 rounded-full bg-white px-2 py-1 text-[10px] font-bold text-ink">Offer</span>}</div><div className="p-3"><h3 className="text-sm font-semibold">{item.name}</h3><p className="mt-1 truncate text-xs text-gray-500">{item.detail}</p><div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-sm font-bold">from {currency(item.price)}</span>{item.oldPrice && <span className="text-xs text-gray-400 line-through">{currency(item.oldPrice)}</span>}</div></div></button>)}</div> : <div className="rounded-2xl border border-dashed border-gray-300 bg-mist p-10 text-center text-sm text-gray-500">This collection is coming soon. Check back shortly.</div>}</section>
     <section className="border-y border-gray-100 bg-mist py-14">
       <div className="mx-auto max-w-6xl px-5"><div className="mb-7 flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">Shop by style</p><h2 className="mt-2 text-2xl font-semibold">Find your point of view</h2></div></div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{catalog.categories.map((item) => <button key={item.name} onClick={() => setCustomizerOpen(true)} className="group overflow-hidden rounded-xl bg-white text-left"><img src={item.image} alt="" className="aspect-square w-full object-cover transition duration-500 group-hover:scale-105" /><span className="block px-3 py-3 text-sm font-semibold">{item.name}</span></button>)}</div>
@@ -227,22 +249,37 @@ function OrderSuccess({ onClose }) { return <div className="rounded-2xl bg-mist 
 
 function AdminLogin({ onClose, onSuccess }) { const [email, setEmail] = useState('codexa031@gmail.com'); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(false); async function login(e) { e.preventDefault(); setLoading(true); setError(''); const { error: signInError } = await supabase.auth.signInWithPassword({ email, password }); setLoading(false); if (signInError) setError('We couldn’t verify those details.'); else onSuccess() } return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/40 p-5"><form onSubmit={login} className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-gallery"><button type="button" onClick={onClose} className="absolute right-3 top-3 touch min-h-10 px-3"><X size={18} /></button><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-mist text-sand"><LockKeyhole size={19} /></div><h2 className="mt-4 text-xl font-semibold">Studio access</h2><p className="mt-1 text-sm text-gray-500">Sign in to manage your gallery.</p><input className="field mt-5" value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required /><input className="field mt-3" value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="current-password" placeholder="Password" required /><button disabled={loading} className="touch mt-4 flex w-full items-center justify-center gap-2 bg-ink text-white">{loading && <Loader2 size={16} className="animate-spin" />} Sign in</button>{error && <p className="mt-3 text-sm text-red-600">{error}</p>}</form></div> }
 
-function AdminDashboard({ catalog, setCatalog, onExit, onSignOut }) { const [tab, setTab] = useState('orders'); const [orders, setOrders] = useState([]); const [loading, setLoading] = useState(true); const [saveStatus, setSaveStatus] = useState(''); const loadOrders = async () => { setLoading(true); const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false }); if (!error) setOrders(data || []); setLoading(false) }; useEffect(() => { loadOrders() }, []); async function saveCatalog(e) { e.preventDefault(); setSaveStatus('Saving…'); const { error } = await supabase.from('store_settings').upsert({ key: 'catalog', value: catalog }, { onConflict: 'key' }); setSaveStatus(error ? error.message : 'Saved to your storefront.') } async function updateStatus(id, order_status) { const { error } = await supabase.from('orders').update({ order_status }).eq('id', id); if (!error) setOrders(orders.map(o => o.id === id ? { ...o, order_status } : o)) } return <div className="min-h-screen bg-mist"><header className="border-b border-gray-200 bg-white"><div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5"><div><p className="font-serif text-lg font-bold tracking-[.18em]">OASIS</p><p className="text-[10px] font-bold uppercase tracking-wider text-sand">Studio dashboard</p></div><div className="flex gap-1"><button onClick={onExit} className="touch min-h-10 px-3 text-sm">View shop</button><button onClick={onSignOut} aria-label="Sign out" className="touch min-h-10 px-3"><LogOut size={17} /></button></div></div></header><div className="mx-auto max-w-7xl px-5 py-7"><div className="mb-6 flex gap-2"><button onClick={() => setTab('orders')} className={`touch flex items-center gap-2 px-4 text-sm ${tab === 'orders' ? 'bg-ink text-white' : 'bg-white'}`}><Package size={16} /> Orders</button><button onClick={() => setTab('content')} className={`touch flex items-center gap-2 px-4 text-sm ${tab === 'content' ? 'bg-ink text-white' : 'bg-white'}`}><LayoutDashboard size={16} /> Content & pricing</button></div>{tab === 'orders' ? <Orders orders={orders} loading={loading} loadOrders={loadOrders} updateStatus={updateStatus} /> : <CatalogManager catalog={catalog} setCatalog={setCatalog} saveCatalog={saveCatalog} saveStatus={saveStatus} />}</div></div> }
+function AdminDashboard({ catalog, setCatalog, onExit, onSignOut }) { const [tab, setTab] = useState('orders'); const [orders, setOrders] = useState([]); const [loading, setLoading] = useState(true); const [saveStatus, setSaveStatus] = useState(''); const servers = catalogServers(catalog); const loadOrders = async () => { setLoading(true); const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false }); if (!error) setOrders(data || []); setLoading(false) }; useEffect(() => { loadOrders() }, []); async function saveCatalog(e) { e.preventDefault(); setSaveStatus('Saving…'); const { error } = await supabase.from('store_settings').upsert({ key: 'catalog', value: catalog }, { onConflict: 'key' }); setSaveStatus(error ? error.message : 'Saved to your storefront.') } async function updateStatus(id, order_status) { const { error } = await supabase.from('orders').update({ order_status }).eq('id', id); if (!error) setOrders(orders.map(o => o.id === id ? { ...o, order_status } : o)) } const selectedServer = servers.find(server => tab === `server-${server.id}`); return <div className="min-h-screen bg-mist"><header className="border-b border-gray-200 bg-white"><div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5"><div><p className="font-serif text-lg font-bold tracking-[.18em]">OASIS</p><p className="text-[10px] font-bold uppercase tracking-wider text-sand">Studio dashboard</p></div><div className="flex gap-1"><button onClick={onExit} className="touch min-h-10 px-3 text-sm">View shop</button><button onClick={onSignOut} aria-label="Sign out" className="touch min-h-10 px-3"><LogOut size={17} /></button></div></div></header><div className="mx-auto max-w-7xl px-5 py-7"><div className="mb-6 flex gap-2 overflow-x-auto pb-1"><button onClick={() => setTab('orders')} className={`touch flex min-h-10 items-center gap-2 px-4 text-sm ${tab === 'orders' ? 'bg-ink text-white' : 'bg-white'}`}><Package size={16} /> Orders</button><button onClick={() => setTab('content')} className={`touch flex min-h-10 items-center gap-2 px-4 text-sm ${tab === 'content' ? 'bg-ink text-white' : 'bg-white'}`}><LayoutDashboard size={16} /> Content & pricing</button>{servers.map(server => { const Icon = server.icon; return <button key={server.id} onClick={() => setTab(`server-${server.id}`)} className={`touch flex min-h-10 items-center gap-2 px-4 text-sm ${tab === `server-${server.id}` ? 'bg-ink text-white' : 'bg-white'}`}><Icon size={16} /> {server.label}</button> })}</div>{tab === 'orders' ? <Orders orders={orders} loading={loading} loadOrders={loadOrders} updateStatus={updateStatus} /> : <CatalogManager catalog={catalog} setCatalog={setCatalog} saveCatalog={saveCatalog} saveStatus={saveStatus} server={selectedServer} />}</div></div> }
 function Orders({ orders, loading, loadOrders, updateStatus }) { return <section><div className="mb-5 flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-sand">Order management</p><h1 className="mt-1 text-3xl font-semibold">Customer requests</h1></div><button onClick={loadOrders} className="touch min-h-10 bg-white px-4 text-sm">Refresh</button></div>{loading ? <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="animate-spin" size={17} /> Loading orders…</div> : orders.length === 0 ? <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-12 text-center text-sm text-gray-500">No orders yet. New customer requests will appear here.</div> : <div className="space-y-3">{orders.map(order => <article key={order.id} className="rounded-2xl bg-white p-4 shadow-sm sm:grid sm:grid-cols-[120px_1fr_auto] sm:gap-5"><img src={order.selected_product_image_url || order.uploaded_image_url || 'https://placehold.co/160x160?text=Art'} alt="Order artwork" className="mb-4 h-24 w-24 rounded-lg object-cover sm:mb-0" /><div><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{order.product_name || order.selected_frame_type}</h2><span className="rounded-full bg-mist px-2 py-1 text-[10px] font-bold uppercase text-gray-500">{order.selected_product_size || order.selected_size}</span></div><p className="mt-2 text-sm font-medium text-ink">Customer: {order.customer_name}</p><p className="mt-1 text-sm text-gray-600">{order.phone} · {order.governorate}</p><p className="mt-1 text-sm text-gray-500">{order.address}</p><p className="mt-2 text-sm font-medium">{order.payment_method} · {currency(order.total || 0)}</p></div><select value={order.order_status || 'New'} onChange={e => updateStatus(order.id, e.target.value)} className="field mt-4 min-h-10 py-0 text-sm sm:mt-0 sm:w-32"><option>New</option><option>Confirmed</option><option>In production</option><option>Delivered</option><option>Cancelled</option></select></article>)}</div>}</section> }
-function CatalogManager({ catalog, setCatalog, saveCatalog, saveStatus }) {
+function CatalogManager({ catalog, setCatalog, saveCatalog, saveStatus, server }) {
   const [uploading, setUploading] = useState('')
   const slides = catalog.slides || DEFAULT_CATALOG.slides
-  const bestSellers = catalog.bestSellers || DEFAULT_CATALOG.bestSellers
+  const products = server ? server.products : (catalog.bestSellers || DEFAULT_CATALOG.bestSellers)
+  const bestSellers = products
+  const sectionName = server ? server.label : 'Products & ordering options'
   const set = (field, value) => setCatalog({ ...catalog, [field]: value })
+  const setProducts = (nextProducts) => {
+    if (!server) return set('bestSellers', nextProducts)
+    setCatalog({ ...catalog, servers: catalogServers(catalog).map(item => item.id === server.id ? { ...item, products: nextProducts } : item) })
+  }
   const setPrice = (type, value) => setCatalog({ ...catalog, prices: { ...catalog.prices, [type]: Number(value) } })
-  const setItem = (field, index, key, value) => { const items = [...(catalog[field] || DEFAULT_CATALOG[field])]; items[index] = { ...items[index], [key]: value }; set(field, items) }
+  const setItem = (field, index, key, value) => {
+    if (server && field === 'bestSellers') return updateProduct(index, { [key]: value })
+    const items = [...(catalog[field] || DEFAULT_CATALOG[field])]; items[index] = { ...items[index], [key]: value }; set(field, items)
+  }
   const addItem = (field) => {
+    if (server && field === 'bestSellers') return addProduct()
     const items = [...(catalog[field] || DEFAULT_CATALOG[field])]
     if (field === 'slides') items.push({ title: 'New offer', subtitle: 'Add your offer description', image: 'https://placehold.co/1400x800?text=Upload+offer+image' })
     if (field === 'bestSellers' && items.length < 12) items.push({ name: 'New product', detail: 'Add product details', price: 0, oldPrice: null, image: 'https://placehold.co/800x1000?text=Upload+product+image', images: ['https://placehold.co/800x1000?text=Upload+product+image'], sizes: [{ label: 'A4 · 21 × 29.7 cm', price: 0 }] })
     set(field, items)
   }
+  const addProduct = () => {
+    if (products.length >= 12) return
+    setProducts([...products, { name: 'New product', detail: 'Add product details', price: 0, oldPrice: null, image: 'https://placehold.co/800x1000?text=Upload+product+image', images: ['https://placehold.co/800x1000?text=Upload+product+image'], sizes: [{ label: 'A4 · 21 × 29.7 cm', price: 0 }] }])
+  }
   const removeItem = async (field, index, image) => {
+    if (server && field === 'bestSellers') return removeProduct(index, image)
     const label = field === 'slides' ? 'this offer' : 'this product'
     if (!window.confirm(`Delete ${label}? This cannot be undone after you save.`)) return
     const marker = '/storage/v1/object/public/store-assets/'
@@ -269,16 +306,23 @@ function CatalogManager({ catalog, setCatalog, saveCatalog, saveStatus }) {
     finally { setUploading('') }
   }
   const updateProduct = (index, update) => {
-    const items = [...(catalog.bestSellers || DEFAULT_CATALOG.bestSellers)]
+    const items = [...products]
     items[index] = typeof update === 'function' ? update(items[index]) : { ...items[index], ...update }
-    set('bestSellers', items)
+    setProducts(items)
+  }
+  const removeProduct = async (index, image) => {
+    if (!window.confirm('Delete this product? This cannot be undone after you save.')) return
+    const marker = '/storage/v1/object/public/store-assets/'
+    const position = image?.indexOf(marker) ?? -1
+    if (position >= 0) await supabase.storage.from('store-assets').remove([decodeURIComponent(image.slice(position + marker.length))])
+    setProducts(products.filter((_, itemIndex) => itemIndex !== index))
   }
   const uploadProductImage = async (file, index, asMain = false) => {
     if (!file?.type?.startsWith('image/')) return
     setUploading(`product-image-${index}`)
     try {
       const extension = file.name.split('.').pop() || 'jpg'
-      const path = `products/${crypto.randomUUID()}.${extension}`
+      const path = `${server ? `servers/${server.id}` : 'products'}/${crypto.randomUUID()}.${extension}`
       const { error } = await supabase.storage.from('store-assets').upload(path, file, { contentType: file.type })
       if (error) throw error
       const { data } = supabase.storage.from('store-assets').getPublicUrl(path)
